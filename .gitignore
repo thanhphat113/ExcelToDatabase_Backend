@@ -1,0 +1,49 @@
+# Build Folders
+bin/
+obj/
+out/
+
+# User-Specific Files
+*.user
+*.vs
+.vscode/
+*.suo
+*.userosscache
+*.sln.docstates
+
+# NuGet Packages
+*.nupkg
+packages/
+project.lock.json
+project.assets.json
+nuget.config
+global.json
+
+# Logs & Database
+logs/
+*.log
+app.db
+app.db-journal
+
+# Visual Studio & Rider
+.vs/
+.idea/
+*.csproj.user
+*.sln.cache
+
+# dotnet tools
+.vscode/
+.vsconfig
+.vscode-test/
+
+# Coverage & Analysis
+coverage/
+TestResults/
+*.code-workspace
+
+# Entity Framework Migrations
+Migrations/
+
+# Local Configurations
+secrets.json
+.env
