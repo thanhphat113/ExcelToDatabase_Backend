@@ -11,28 +11,28 @@ namespace ExcelToDB_Backend.Controllers
     [Route("api/[controller]")]
     public class DatabaseController : ControllerBase
     {
-        private readonly IDatabaseService _database;
+        private IDatabaseService _database;
         public DatabaseController(IDatabaseService database)
         {
             _database = database;
         }
 
         [HttpGet("list")]
-        public async Task<IActionResult> Get()
+        public async Task<IActionResult> Get(string connectionString)
         {
-            return Ok(await _database.GetAllDatabases());
+            return Ok(await _database.GetAllDatabases(connectionString));
         }
 
         [HttpGet("tables")]
-        public async Task<IActionResult> GetTables(string databaseName)
+        public async Task<IActionResult> GetTables(string connectionString, string databaseName)
         {
-            return Ok(await _database.GetAllTables(databaseName));
+            return Ok(await _database.GetAllTables(connectionString, databaseName));
         }
 
         [HttpPost]
-        public async Task<IActionResult> PostValues([FromBody] DataRequest values)
+        public async Task<IActionResult> PostValues(DataRequest values)
         {
-            return Ok(await _database.InsertValues(values.DatabaseName, values.TableName, values.Data));
+            return Ok(await _database.InsertValues(values.connectionString, values.DatabaseName, values.TableName, values.Data));
         }
     }
 
@@ -40,6 +40,7 @@ namespace ExcelToDB_Backend.Controllers
     {
         public string DatabaseName { get; set; }
         public string TableName { get; set; }
+        public string connectionString { get; set; }
         public List<List<string>> Data { get; set; }
     }
 }

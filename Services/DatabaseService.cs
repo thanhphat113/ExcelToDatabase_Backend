@@ -10,32 +10,49 @@ namespace ExcelToDB_Backend.Services
 {
     public interface IDatabaseService
     {
-        Task<dynamic> GetAllDatabases();
-        Task<dynamic> GetAllTables(string databaseName);
-        Task<dynamic> InsertValues(string databaseName, string tableName, List<List<string>> Data);
+        Task<dynamic> GetAllDatabases(string connectionString);
+        Task<dynamic> GetAllTables(string connectionString, string databaseName);
+        Task<dynamic> InsertValues(string connectionString, string databaseName, string tableName, List<List<string>> Data);
     }
     public class DatabaseService : IDatabaseService
     {
-        private readonly string _connectionString = "Server=localhost;User Id=sa;Password=123456aA@$;TrustServerCertificate=True";
-        public async Task<dynamic> GetAllDatabases()
+        public async Task<dynamic> GetAllDatabases(string connectionString)
         {
-            using (var connection = new SqlConnection(_connectionString))
+            try
             {
-                var query = "SELECT name FROM sys.databases WHERE database_id > 4";
-                return await connection.QueryAsync(query);
+                using (var connection = new SqlConnection(connectionString))
+                {
+                    var query = "SELECT name FROM sys.databases WHERE database_id > 4";
+                    var result = await connection.QueryAsync(query);
+                    return new
+                    {
+                        statusCode = 200,
+                        result = result
+                    };
+                }
             }
+            catch (System.Exception ex)
+            {
+                return new
+                {
+                    statusCode = 500,
+                    message = "Không kết nối được database"
+                };
+            }
+
         }
 
-        public async Task<dynamic> GetAllTables(string databaseName)
+        public async Task<dynamic> GetAllTables(string connectionString, string databaseName)
         {
-            using var connection = new SqlConnection($"{_connectionString};Initial Catalog={databaseName}");
+            Console.WriteLine($"{connectionString};Initial Catalog={databaseName}");
+            using var connection = new SqlConnection($"{connectionString};Initial Catalog={databaseName}");
             var query = "SELECT TABLE_NAME as name FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'";
             return await connection.QueryAsync(query);
         }
 
-        private async Task<dynamic> GetColumnNameInTable(string databaseName, string tableName)
+        private async Task<dynamic> GetColumnNameInTable(string connectionString, string databaseName, string tableName)
         {
-            using var connection = new SqlConnection($"{_connectionString};Initial Catalog={databaseName}");
+            using var connection = new SqlConnection($"{connectionString};Initial Catalog={databaseName}");
             {
                 var query = @"SELECT COLUMN_NAME as name
                                 FROM INFORMATION_SCHEMA.COLUMNS 
@@ -47,9 +64,9 @@ namespace ExcelToDB_Backend.Services
             }
         }
 
-        private async Task<List<ForeignKey>> GetForeignKey(string databaseName, string tableName)
+        private async Task<List<ForeignKey>> GetForeignKey(string connectionString, string databaseName, string tableName)
         {
-            using (var connection = new SqlConnection($"{_connectionString};Initial Catalog={databaseName}"))
+            using (var connection = new SqlConnection($"{connectionString};Initial Catalog={databaseName}"))
             {
                 var query = @"
                     SELECT 
@@ -76,11 +93,11 @@ namespace ExcelToDB_Backend.Services
                 return (await connection.QueryAsync<ForeignKey>(query, parameters)).ToList();
             }
         }
-        private async Task<int?> GetItemOrCreateNew(string? value, string tableName, string databaseName, string columnName)
+        private async Task<int?> GetItemOrCreateNew(string connectionString, string? value, string tableName, string databaseName, string columnName)
         {
             // Console.WriteLine(tableName);
             if (value == null) return null;
-            using (var connection = new SqlConnection($"{_connectionString};Initial Catalog={databaseName}"))
+            using (var connection = new SqlConnection($"{connectionString};Initial Catalog={databaseName}"))
             {
                 var query = $"select Id{tableName} from {tableName} where {columnName} = N'{value}'";
                 int? itemId = await connection.QueryFirstOrDefaultAsync<int?>(query);
@@ -97,9 +114,9 @@ namespace ExcelToDB_Backend.Services
             }
         }
 
-        public async Task<dynamic> InsertValues(string databaseName, string tableName, List<List<string>> Data)
+        public async Task<dynamic> InsertValues(string connectionString, string databaseName, string tableName, List<List<string>> Data)
         {
-            var foreignKeys = await GetForeignKey(databaseName, tableName);
+            var foreignKeys = await GetForeignKey(connectionString, databaseName, tableName);
 
             var columnTables = Data.First();
 
@@ -121,13 +138,13 @@ namespace ExcelToDB_Backend.Services
                 foreach (var value in matchedColumns)
                 {
                     var tableNameOfForeignKey = value.Value.Replace("Id", "");
-                    var columnName = await GetColumnNameInTable(databaseName, tableNameOfForeignKey);
+                    var columnName = await GetColumnNameInTable(connectionString, databaseName, tableNameOfForeignKey);
 
                     if (!idOfForeignKeys.ContainsKey(value.Value))
                     {
                         idOfForeignKeys[value.Value] = new List<int?>();
                     }
-                    var id = await GetItemOrCreateNew(value.index < items.Count ? items[value.index] : null, tableNameOfForeignKey, databaseName, columnName.name);
+                    var id = await GetItemOrCreateNew(connectionString, value.index < items.Count ? items[value.index] : null, tableNameOfForeignKey, databaseName, columnName.name);
                     idOfForeignKeys[value.Value].Add(id);
                 }
             }
@@ -136,7 +153,7 @@ namespace ExcelToDB_Backend.Services
             columnToInsert = columnToInsert + "," + string.Join(",", idOfForeignKeys.Keys);
 
             List<string> values = [];
-            using (var connection = new SqlConnection($"{_connectionString};Initial Catalog={databaseName}"))
+            using (var connection = new SqlConnection($"{connectionString};Initial Catalog={databaseName}"))
             {
                 for (int i = 1; i < Data.Count; i++)
                 {
@@ -152,9 +169,8 @@ namespace ExcelToDB_Backend.Services
                     values.Add(value);
                 }
             }
-            // return new { values = values, column = columnToInsert };
 
-            var result = InsertToDatabase(databaseName, tableName, columnToInsert, values, Data);
+            var result = InsertToDatabase(connectionString, databaseName, tableName, columnToInsert, values, Data);
 
             return new
             {
@@ -163,9 +179,9 @@ namespace ExcelToDB_Backend.Services
             };
         }
 
-        private bool InsertToDatabase(string databaseName, string tableName, string columnToInsert, List<string> values, List<List<string>> Data)
+        private bool InsertToDatabase(string connectionString, string databaseName, string tableName, string columnToInsert, List<string> values, List<List<string>> Data)
         {
-            using (var connection = new SqlConnection($"{_connectionString};Initial Catalog={databaseName}"))
+            using (var connection = new SqlConnection($"{connectionString};Initial Catalog={databaseName}"))
             {
                 var query = $"INSERT INTO {tableName}({columnToInsert}) VALUES ";
                 for (int i = 1; i < Data.Count; i++)
@@ -179,22 +195,5 @@ namespace ExcelToDB_Backend.Services
                 return false;
             }
         }
-
-        // private static string FormatColumnName(string data)
-        // {
-        //     string normalized = data.Normalize(NormalizationForm.FormD);
-
-        //     string withoutDiacritics = new string(normalized
-        //         .Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
-        //         .ToArray());
-
-        //     string cleaned = Regex.Replace(withoutDiacritics, @"[^a-zA-Z0-9\s]", "");
-
-        //     cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
-
-        //     TextInfo textInfo = CultureInfo.CurrentCulture.TextInfo;
-        //     return textInfo.ToTitleCase(cleaned.ToLower()).Replace(" ", "");
-        // }
-
     }
 }
