@@ -1,9 +1,6 @@
 using Dapper;
 using ExcelToDB_Backend.Models;
 using Microsoft.Data.SqlClient;
-using System.Globalization;
-using System.Text;
-using System.Text.RegularExpressions;
 
 
 namespace ExcelToDB_Backend.Services
@@ -93,13 +90,12 @@ namespace ExcelToDB_Backend.Services
                 return (await connection.QueryAsync<ForeignKey>(query, parameters)).ToList();
             }
         }
-        private async Task<int?> GetItemOrCreateNew(string connectionString, string? value, string tableName, string databaseName, string columnName)
+        private async Task<int?> GetItemOrCreateNew(string connectionString, string? value, string tableName, string databaseName, string columnName, string referencedColumn)
         {
-            // Console.WriteLine(tableName);
             if (value == null) return null;
             using (var connection = new SqlConnection($"{connectionString};Initial Catalog={databaseName}"))
             {
-                var query = $"select Id{tableName} from {tableName} where {columnName} = N'{value}'";
+                var query = $"select {referencedColumn} from {tableName} where {columnName} = N'{value}'";
                 int? itemId = await connection.QueryFirstOrDefaultAsync<int?>(query);
 
                 if (itemId.HasValue)
@@ -122,14 +118,11 @@ namespace ExcelToDB_Backend.Services
 
             var matchedColumns = columnTables
                 .Select((col, index) => new { Column = col, Index = index })
-                .Where(item => foreignKeys.Any(fk => item.Column.Contains(fk.ReferencedTable)))
-                .Select(item => new { Value = item.Column, index = item.Index })
+                .Where(item => foreignKeys.Any(fk => item.Column.Contains(fk.ForeignKeyColumn)))
+                .Select(item => new { Value = item.Column, index = item.Index, foreignKey = foreignKeys.Where(fk => fk.ForeignKeyColumn == item.Column).FirstOrDefault() })
                 .ToList();
 
-            // return matchedColumns;
-
             var listNotForeignKey = columnTables.Where(col => matchedColumns.All(fk => !string.Equals(fk.Value, col, StringComparison.Ordinal))).ToList();
-            // return listNotForeignKey;
 
             Dictionary<string, List<int?>> idOfForeignKeys = [];
 
@@ -137,14 +130,15 @@ namespace ExcelToDB_Backend.Services
             {
                 foreach (var value in matchedColumns)
                 {
-                    var tableNameOfForeignKey = value.Value.Replace("Id", "");
-                    var columnName = await GetColumnNameInTable(connectionString, databaseName, tableNameOfForeignKey);
+                    var referencedTable = value.foreignKey.ReferencedTable;
+                    var referencedColumn = value.foreignKey.ReferencedColumn;
+                    var columnName = await GetColumnNameInTable(connectionString, databaseName, referencedTable);
 
                     if (!idOfForeignKeys.ContainsKey(value.Value))
                     {
                         idOfForeignKeys[value.Value] = new List<int?>();
                     }
-                    var id = await GetItemOrCreateNew(connectionString, value.index < items.Count ? items[value.index] : null, tableNameOfForeignKey, databaseName, columnName.name);
+                    var id = await GetItemOrCreateNew(connectionString, value.index < items.Count ? items[value.index] : null, referencedTable, databaseName, columnName.name, referencedColumn);
                     idOfForeignKeys[value.Value].Add(id);
                 }
             }
@@ -172,28 +166,32 @@ namespace ExcelToDB_Backend.Services
 
             var result = InsertToDatabase(connectionString, databaseName, tableName, columnToInsert, values, Data);
 
-            return new
-            {
-                statusCode = result ? 200 : 400,
-                message = result ? "Thêm danh sách thành công !" : "Thêm danh sách thất bại !"
-            };
+            return result;
         }
 
-        private bool InsertToDatabase(string connectionString, string databaseName, string tableName, string columnToInsert, List<string> values, List<List<string>> Data)
+        private dynamic InsertToDatabase(string connectionString, string databaseName, string tableName, string columnToInsert, List<string> values, List<List<string>> Data)
         {
-            using (var connection = new SqlConnection($"{connectionString};Initial Catalog={databaseName}"))
+            try
             {
-                var query = $"INSERT INTO {tableName}({columnToInsert}) VALUES ";
-                for (int i = 1; i < Data.Count; i++)
+                using (var connection = new SqlConnection($"{connectionString};Initial Catalog={databaseName}"))
                 {
-                    if (i != 1) query += ",";
-                    query += $"({values[i - 1]})";
-                    var parameters = values.Select(value => new { Value = value }).ToList();
+                    var query = $"INSERT INTO {tableName}({columnToInsert}) VALUES ";
+                    for (int i = 1; i < Data.Count; i++)
+                    {
+                        if (i != 1) query += ",";
+                        query += $"({values[i - 1]})";
+                        var parameters = values.Select(value => new { Value = value }).ToList();
+                    }
+                    var rowEffect = connection.Execute(query);
+                    if (rowEffect > 0) return new { statusCode = 200, message = "Thêm danh sách thành công" };
+                    return new { statusCode = 400, message = "Thêm danh sách thất bại" };
                 }
-                var rowEffect = connection.Execute(query);
-                if (rowEffect > 0) return true;
-                return false;
             }
+            catch (SqlException ex)
+            {
+                return new { statusCode = 500, message = ex.Message };
+            }
+
         }
     }
 }
